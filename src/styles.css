@@ -1,28 +1,118 @@
+@import "tailwindcss";
+
 :root {
-  color-scheme: light;
-  font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  background: #f8fafc;
-  color: #0f172a;
+  --src-charcoal: #383b3e;
+  --src-cloud: #c0c8d0;
+  --src-ivory: #fffeee;
+  --src-mist: #c8d9ec;
+  --src-aqua: #8fb6d8;
+  --src-teal: #4b6fa8;
+  --src-magenta: #cf3c83;
+
+  --bg-page:
+    radial-gradient(circle at 10% 10%, rgba(143, 182, 216, 0.20), transparent 24%),
+    radial-gradient(circle at 88% 12%, rgba(200, 217, 236, 0.24), transparent 28%),
+    radial-gradient(circle at 80% 72%, rgba(207, 60, 131, 0.08), transparent 18%),
+    linear-gradient(180deg, #fbfcfe 0%, #f4f7fb 52%, #f4f9fd 100%);
+
+  --text-strong: #2d3238;
+  --text-default: #52606a;
+  --text-muted: #7e8993;
+  --text-on-accent: #ffffff;
+
+  --surface: rgba(255, 255, 255, 0.54);
+  --surface-strong: rgba(255, 255, 255, 0.72);
+  --surface-soft: rgba(255, 254, 238, 0.48);
+
+  --line-soft: rgba(255, 255, 255, 0.62);
+  --line-default: rgba(56, 59, 62, 0.08);
+  --line-strong: rgba(78, 115, 171, 0.22);
+
+  --shadow-soft: 0 12px 34px rgba(56, 59, 62, 0.08);
+  --shadow-float: 0 18px 44px rgba(56, 59, 62, 0.10);
+
+  --accent-primary: #5f7eb8;
+  --accent-secondary: #8eb2d4;
+  --accent-mist: #afc7e1;
+  --accent-teal: #4e73ab;
+  --accent-highlight: #cf3c83;
+  --accent-success: #7498c2;
+
+  --state-active-text: #4e73ab;
+  --state-active-bg: rgba(200, 217, 236, 0.44);
+
+  --state-frozen-text: #6b87aa;
+  --state-frozen-bg: rgba(200, 217, 236, 0.32);
+
+  --state-completed-text: #5d86b2;
+  --state-completed-bg: rgba(143, 182, 216, 0.18);
+
+  --state-archived-text: #6d7780;
+  --state-archived-bg: rgba(192, 200, 208, 0.22);
+
+  --state-focus-text: #b23873;
+  --state-focus-bg: rgba(207, 60, 131, 0.10);
 }
 
-* {
-  box-sizing: border-box;
-}
-
-html, body, #root {
-  margin: 0;
+html,
+body,
+#root {
   min-height: 100%;
 }
 
-body {
-  min-height: 100vh;
-  background: linear-gradient(to bottom, #fffdfd, #fafbff);
+html {
+  color-scheme: light;
 }
 
-button, input, textarea, select {
+body {
+  margin: 0;
+  background: var(--bg-page);
+  color: var(--text-strong);
+  font-family:
+    "Inter",
+    "Noto Sans JP",
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+button,
+input,
+textarea,
+select {
   font: inherit;
 }
 
-table {
-  border-collapse: collapse;
+button {
+  cursor: pointer;
+}
+
+input,
+textarea,
+select {
+  color: inherit;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: rgba(82, 96, 106, 0.58);
+}
+
+::selection {
+  background: rgba(95, 126, 184, 0.16);
+}
+
+:focus-visible {
+  outline: 2px solid rgba(95, 126, 184, 0.28);
+  outline-offset: 2px;
 }

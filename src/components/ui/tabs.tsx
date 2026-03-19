@@ -1,14 +1,24 @@
 import * as React from "react";
-import { cn } from "@/lib";
 
 type TabsContextValue = {
   value: string;
-  onValueChange?: (value: string) => void;
+  onValueChange: (value: string) => void;
 };
 
 const TabsContext = React.createContext<TabsContextValue | null>(null);
 
-export function Tabs({ value, onValueChange, className, children }: React.PropsWithChildren<{ value: string; onValueChange?: (value: string) => void; className?: string; }>) {
+function cn(...values: Array<string | false | null | undefined>) {
+  return values.filter(Boolean).join(" ");
+}
+
+type TabsProps = {
+  value: string;
+  onValueChange: (value: string) => void;
+  className?: string;
+  children: React.ReactNode;
+};
+
+export function Tabs({ value, onValueChange, className, children }: TabsProps) {
   return (
     <TabsContext.Provider value={{ value, onValueChange }}>
       <div className={className}>{children}</div>
@@ -16,23 +26,57 @@ export function Tabs({ value, onValueChange, className, children }: React.PropsW
   );
 }
 
-export function TabsList({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
-  return <div className={cn("flex flex-wrap gap-2", className)} {...props} />;
+type TabsListProps = React.HTMLAttributes<HTMLDivElement>;
+
+export function TabsList({ className, style, ...props }: TabsListProps) {
+  return (
+    <div
+      className={cn("grid gap-2", className)}
+      style={style}
+      {...props}
+    />
+  );
 }
 
-export function TabsTrigger({ value, className, children, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement> & { value: string }) {
+type TabsTriggerProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
+  value: string;
+};
+
+export function TabsTrigger({
+  value,
+  className,
+  style,
+  children,
+  onClick,
+  ...props
+}: TabsTriggerProps) {
   const ctx = React.useContext(TabsContext);
   const active = ctx?.value === value;
+
   return (
     <button
       type="button"
+      data-state={active ? "active" : "inactive"}
       className={cn(
-        "inline-flex items-center rounded-xl px-3 py-2 transition",
-        active ? "border border-violet-200 bg-violet-50 text-violet-700 shadow-sm" : "border border-slate-200 bg-slate-50 text-slate-700",
+        "flex items-center gap-2 rounded-[18px] px-4 py-3 text-left transition-all duration-200",
+        "border backdrop-blur-[18px]",
+        active
+          ? "text-[color:var(--accent-teal)] shadow-[0_8px_22px_rgba(56,59,62,0.06)]"
+          : "text-[color:var(--text-default)] hover:text-[color:var(--text-strong)]",
         className
       )}
-      onClick={() => ctx?.onValueChange?.(value)}
-      data-state={active ? "active" : "inactive"}
+      style={{
+        borderColor: active ? "rgba(78, 115, 171, 0.16)" : "rgba(255, 255, 255, 0.45)",
+        background: active ? "var(--state-active-bg)" : "rgba(255,255,255,0.34)",
+        boxShadow: active
+          ? "inset 0 1px 0 rgba(255,255,255,0.55), 0 8px 22px rgba(56,59,62,0.06)"
+          : undefined,
+        ...style,
+      }}
+      onClick={(event) => {
+        ctx?.onValueChange(value);
+        onClick?.(event);
+      }}
       {...props}
     >
       {children}
