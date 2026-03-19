@@ -114,7 +114,16 @@ const STORE_RUNNING_TIMERS = "runningTimers";
 const STORE_TIME_LOGS = "timeLogs";
 const STORE_APP_META = "appMeta";
 const APP_META_ID = "app-meta" as const;
-const DEFAULT_WORK_TYPE_NAMES = ["作曲", "編曲", "調声", "修正", "ミックス", "マスタリング", "その他"];
+const DEFAULT_WORK_TYPE_DEFS = [
+  { name: "作曲", sortOrder: 10 },
+  { name: "編曲", sortOrder: 20 },
+  { name: "作詞", sortOrder: 30 },
+  { name: "調声", sortOrder: 40 },
+  { name: "修正", sortOrder: 50 },
+  { name: "ミックス", sortOrder: 60 },
+  { name: "マスタリング", sortOrder: 70 },
+  { name: "その他", sortOrder: 80 },
+] as const;
 const SYNC_CHANNEL = "dtm-worklog-sync";
 
 const workTypeToneStyles: Record<
@@ -143,6 +152,14 @@ const workTypeToneStyles: Record<
     settingsRow: "border-white/55 bg-[rgba(143,182,216,0.22)]",
     settingsIndex: "bg-white/70 text-[color:var(--accent-primary)]",
     settingsAction: "border-white/70 bg-white/56 text-[color:var(--accent-primary)] hover:bg-white/72",
+  },
+  作詞: {
+    card: "border-white/60 bg-[rgba(207,60,131,0.06)] text-[color:var(--accent-highlight)] hover:bg-[rgba(207,60,131,0.10)]",
+    cardActive: "border-[rgba(207,60,131,0.12)] bg-[rgba(207,60,131,0.12)] text-[color:var(--accent-highlight)] ring-2 ring-[rgba(207,60,131,0.08)] shadow-[0_10px_24px_rgba(56,59,62,0.06)]",
+    chip: "border-white/65 bg-[rgba(207,60,131,0.12)] text-[color:var(--accent-highlight)]",
+    settingsRow: "border-white/55 bg-[rgba(207,60,131,0.06)]",
+    settingsIndex: "bg-white/70 text-[color:var(--accent-highlight)]",
+    settingsAction: "border-white/70 bg-white/56 text-[color:var(--accent-highlight)] hover:bg-white/72",
   },
   調声: {
     card: "border-white/60 bg-[rgba(175,199,225,0.20)] text-[#6883ad] hover:bg-[rgba(175,199,225,0.30)]",
@@ -305,10 +322,11 @@ function downloadText(filename: string, text: string, mime: string) {
 
 function buildDefaultWorkTypes() {
   const now = nowIso();
-  return DEFAULT_WORK_TYPE_NAMES.map((name, index) => ({
+
+  return DEFAULT_WORK_TYPE_DEFS.map((item) => ({
     id: makeId(),
-    name,
-    sortOrder: index + 1,
+    name: item.name,
+    sortOrder: item.sortOrder,
     isActive: true,
     createdAt: now,
     updatedAt: now,
@@ -333,6 +351,47 @@ function buildEmptyAppData(): AppData {
     timeLogs: [],
     appMeta: buildInitialMeta(),
   };
+}
+
+function ensureDefaultWorkTypes(current: WorkType[]) {
+  const now = nowIso();
+  const byName = new Map(current.map((item) => [item.name, item]));
+  let changed = false;
+
+  const normalized = [...current];
+
+  DEFAULT_WORK_TYPE_DEFS.forEach((def) => {
+    const existing = byName.get(def.name);
+
+    if (!existing) {
+      normalized.push({
+        id: makeId(),
+        name: def.name,
+        sortOrder: def.sortOrder,
+        isActive: true,
+        createdAt: now,
+        updatedAt: now,
+      });
+      changed = true;
+      return;
+    }
+
+    if (existing.sortOrder !== def.sortOrder) {
+      existing.sortOrder = def.sortOrder;
+      existing.updatedAt = now;
+      changed = true;
+    }
+  });
+
+  return {
+    workTypes: normalized.sort((a, b) => a.sortOrder - b.sortOrder),
+    changed,
+  };
+}
+
+function getNextWorkTypeSortOrder(items: WorkType[]) {
+  const max = items.reduce((acc, item) => Math.max(acc, item.sortOrder), 0);
+  return max === 0 ? 100 : Math.ceil((max + 1) / 10) * 10;
 }
 
 function createStoreIfMissing(db: IDBDatabase, name: string, options?: IDBObjectStoreParameters) {
@@ -446,6 +505,22 @@ async function loadAppDataFromDb(): Promise<AppData> {
 
   if (!appMeta) appMeta = buildInitialMeta();
 
+  const ensured = ensureDefaultWorkTypes(workTypes);
+  if (ensured.changed) {
+    const normalizedData: AppData = {
+      tasks,
+      workTypes: ensured.workTypes,
+      runningTimers,
+      timeLogs,
+      appMeta,
+    };
+
+    const saved = await saveAppDataToDb(normalizedData);
+    if (saved.ok) return saved.data;
+
+    workTypes = ensured.workTypes;
+  }
+
   return {
     tasks,
     workTypes,
@@ -531,6 +606,8 @@ export default function DtmWorklogPrototype() {
   const [archiveDialogOpen, setArchiveDialogOpen] = useState(false);
   const [resetDialogOpen, setResetDialogOpen] = useState(false);
   const [resetConfirmText, setResetConfirmText] = useState("");
+  const [taskDetailOpen, setTaskDetailOpen] = useState(false);
+  const [taskDetailTaskId, setTaskDetailTaskId] = useState<Id>("");
 
   const tasks = data?.tasks ?? [];
   const workTypes = data?.workTypes ?? [];
@@ -649,6 +726,54 @@ export default function DtmWorklogPrototype() {
     return [...map.entries()].map(([workTypeId, total]) => ({ workTypeId, name: workTypesById[workTypeId]?.name ?? "不明", total })).sort((a, b) => b.total - a.total);
   }, [timeLogs, workTypesById]);
 
+  const taskDetailTarget = useMemo(
+    () => (taskDetailTaskId ? tasksById[taskDetailTaskId] : undefined),
+    [taskDetailTaskId, tasksById]
+  );
+
+  const taskDetailLogs = useMemo(
+    () =>
+      [...timeLogs]
+        .filter((log) => log.taskId === taskDetailTaskId)
+        .sort((a, b) => +new Date(b.endAt) - +new Date(a.endAt)),
+    [timeLogs, taskDetailTaskId]
+  );
+
+  const taskDetailTotalMinutes = useMemo(
+    () => taskDetailLogs.reduce((sum, log) => sum + log.durationMinutes, 0),
+    [taskDetailLogs]
+  );
+
+  const taskDetailByWorkType = useMemo(() => {
+    const map = new Map<
+      Id,
+      { workTypeId: Id; name: string; total: number; count: number; lastAt: string }
+    >();
+
+    taskDetailLogs.forEach((log) => {
+      const current = map.get(log.workTypeId);
+      const name = workTypesById[log.workTypeId]?.name ?? "その他";
+
+      if (current) {
+        current.total += log.durationMinutes;
+        current.count += 1;
+        if (+new Date(log.endAt) > +new Date(current.lastAt)) {
+          current.lastAt = log.endAt;
+        }
+      } else {
+        map.set(log.workTypeId, {
+          workTypeId: log.workTypeId,
+          name,
+          total: log.durationMinutes,
+          count: 1,
+          lastAt: log.endAt,
+        });
+      }
+    });
+
+    return [...map.values()].sort((a, b) => b.total - a.total);
+  }, [taskDetailLogs, workTypesById]);
+
   async function reloadLatest(showMessage?: string) {
     const latest = await loadAppDataFromDb();
     setData(latest);
@@ -677,6 +802,11 @@ export default function DtmWorklogPrototype() {
     channel.close();
     if (successMessage) setNotice(successMessage);
     return true;
+  }
+
+  function openTaskDetail(taskId: Id) {
+    setTaskDetailTaskId(taskId);
+    setTaskDetailOpen(true);
   }
 
   function openTaskEdit(task: Task) {
@@ -837,7 +967,14 @@ export default function DtmWorklogPrototype() {
     if (!name) return setNotice("作業項目名を入力してください");
     if (workTypes.some((item) => item.name === name)) return setNotice("同名の作業項目があります");
     const stamp = nowIso();
-    const workType: WorkType = { id: makeId(), name, sortOrder: workTypes.length + 1, isActive: true, createdAt: stamp, updatedAt: stamp };
+    const workType: WorkType = {
+      id: makeId(),
+      name,
+      sortOrder: getNextWorkTypeSortOrder(workTypes),
+      isActive: true,
+      createdAt: stamp,
+      updatedAt: stamp,
+    };
     const ok = await applyMutation((draft) => ({ ...draft, workTypes: [...draft.workTypes, workType] }), "作業項目を追加しました");
     if (!ok) return;
     setNewWorkTypeName("");
@@ -897,6 +1034,7 @@ export default function DtmWorklogPrototype() {
       if (!window.confirm("バックアップを読み込むと現在のデータをすべて置き換えます。続けますか？")) return;
       const imported = deepClone(parsed.data);
       imported.appMeta.id = APP_META_ID;
+      imported.workTypes = ensureDefaultWorkTypes(imported.workTypes).workTypes;
       const result = await saveAppDataToDb(imported);
       if (!result.ok) return setNotice("バックアップの読み込みに失敗しました");
       setData(result.data);
@@ -1063,7 +1201,7 @@ export default function DtmWorklogPrototype() {
                       </div>
                       <div className="flex items-center gap-3 pt-1 md:pt-2">
                         <Button className="h-12 rounded-full border border-violet-300/40 bg-violet-500/85 px-6 text-white shadow-[0_10px_26px_rgba(124,58,237,0.22)] backdrop-blur-md hover:bg-violet-500/95" onClick={() => setTab("start")}>
-                          <Play className="mr-2 h- w-4" />
+                          <Play className="mr-2 h-4 w-4" />
                           作業を始める
                         </Button>
                         <Button
@@ -1483,13 +1621,38 @@ export default function DtmWorklogPrototype() {
                     <CardHeader><SectionTitle icon={<BarChart3 className="h-5 w-5" />} title="制作物ごとの時間" /></CardHeader>
                     <CardContent className="space-y-4">
                       {analysisByTask.length === 0 ? (
-                        <div className="rounded-[24px] border border-dashed border-slate-200 bg-slate-50 px-4 py-10 text-center text-sm text-slate-500">まだ分析できるログがありません。</div>
-                      ) : analysisByTask.map((row) => (
-                        <div key={row.taskId} className="rounded-[24px] border border-violet-100 bg-violet-50/50 p-4">
-                          <div className="mb-2 flex items-center justify-between gap-3"><div className="font-medium">{row.title}</div><div className="text-sm font-medium">{formatMinutes(row.total)}</div></div>
-                          <Bar value={row.total} max={analysisByTask[0]?.total ?? 1} />
+                        <div className="rounded-[24px] border border-dashed border-slate-200 bg-slate-50 px-4 py-10 text-center text-sm text-slate-500">
+                          まだ分析できるログがありません。
                         </div>
-                      ))}
+                      ) : analysisByTask.map((row, index) => {
+                        const tone = getTaskSelectionTone(index);
+
+                        return (
+                          <div
+                            key={row.taskId}
+                            className={`rounded-[24px] border p-4 backdrop-blur-[18px] ${tone.idle}`}
+                          >
+                            <div className="mb-3 flex items-center justify-between gap-3">
+                              <div>
+                                <div className="font-medium text-[color:var(--text-strong)]">{row.title}</div>
+                                <div className="text-sm text-[color:var(--text-muted)]">
+                                  合計 {formatMinutes(row.total)}
+                                </div>
+                              </div>
+
+                              <Button
+                                variant="outline"
+                                className="rounded-full"
+                                onClick={() => openTaskDetail(row.taskId)}
+                              >
+                                詳細
+                              </Button>
+                            </div>
+
+                            <Bar value={row.total} max={analysisByTask[0]?.total ?? 1} />
+                          </div>
+                        );
+                      })}
                     </CardContent>
                   </Card>
 
@@ -1689,6 +1852,98 @@ export default function DtmWorklogPrototype() {
         </DialogContent>
       </Dialog>
 
+      <Dialog
+        open={taskDetailOpen}
+        onOpenChange={(open) => {
+          setTaskDetailOpen(open);
+          if (!open) setTaskDetailTaskId("");
+        }}
+      >
+        <DialogContent className="max-w-2xl rounded-[28px]">
+          <DialogHeader>
+            <DialogTitle>
+              {taskDetailTarget ? `${taskDetailTarget.title} の内訳` : "タスク詳細"}
+            </DialogTitle>
+          </DialogHeader>
+
+          {taskDetailTarget ? (
+            <div className="grid gap-4">
+              <div className="grid gap-3 sm:grid-cols-3">
+                <Card className="rounded-[22px] border border-white/45 bg-white/52 shadow-none backdrop-blur-[18px]">
+                  <CardContent className="p-4">
+                    <div className="text-sm text-[color:var(--text-muted)]">総記録時間</div>
+                    <div className="mt-1 text-lg font-semibold text-[color:var(--accent-primary)]">
+                      {formatMinutes(taskDetailTotalMinutes)}
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card className="rounded-[22px] border border-white/45 bg-white/52 shadow-none backdrop-blur-[18px]">
+                  <CardContent className="p-4">
+                    <div className="text-sm text-[color:var(--text-muted)]">ログ件数</div>
+                    <div className="mt-1 text-lg font-semibold text-[color:var(--accent-teal)]">
+                      {taskDetailLogs.length}件
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card className="rounded-[22px] border border-white/45 bg-white/52 shadow-none backdrop-blur-[18px]">
+                  <CardContent className="p-4">
+                    <div className="text-sm text-[color:var(--text-muted)]">最終記録</div>
+                    <div className="mt-1 text-lg font-semibold text-[color:var(--text-default)]">
+                      {taskDetailLogs[0] ? formatDateTime(taskDetailLogs[0].endAt) : "-"}
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              <div className="grid gap-3">
+                {taskDetailByWorkType.length === 0 ? (
+                  <div className="rounded-[22px] border border-dashed border-slate-200 bg-slate-50 px-4 py-10 text-center text-sm text-slate-500">
+                    内訳にできるログがありません。
+                  </div>
+                ) : (
+                  taskDetailByWorkType.map((row) => {
+                    const tone =
+                      workTypeToneStyles[row.name] ?? workTypeToneStyles["その他"];
+
+                    return (
+                      <div
+                        key={row.workTypeId}
+                        className={`rounded-[22px] border p-4 backdrop-blur-[18px] ${tone.settingsRow}`}
+                      >
+                        <div className="mb-3 flex items-center justify-between gap-3">
+                          <div className="flex items-center gap-2">
+                            <Badge className={`rounded-full border backdrop-blur-[16px] ${tone.chip}`}>
+                              {row.name}
+                            </Badge>
+                            <div className="text-sm text-[color:var(--text-muted)]">
+                              {row.count}件
+                            </div>
+                          </div>
+
+                          <div className="text-sm font-medium text-[color:var(--text-default)]">
+                            {formatMinutes(row.total)}
+                          </div>
+                        </div>
+
+                        <Bar
+                          value={row.total}
+                          max={taskDetailByWorkType[0]?.total ?? 1}
+                        />
+
+                        <div className="mt-2 text-xs text-[color:var(--text-muted)]">
+                          最終記録: {formatDateTime(row.lastAt)}
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          ) : null}
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={manualOpen} onOpenChange={setManualOpen}>
         <DialogContent className="max-w-xl rounded-[28px]">
